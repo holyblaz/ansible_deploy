@@ -1,0 +1,9 @@
+telegram_bot_token: "our bot token"
+telegram_chat_id: "our chat id"
+project_name: "arsp_XX.XX.XX"
+
+telegram_immediate_notify: true
+telegram_summary_notify: true
+
+process_python_fixes: true
+ignore_py_errors: false

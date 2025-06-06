@@ -1,0 +1,207 @@
+---
+
+- name: Deploy web project to servers
+  hosts: all
+  gather_facts: yes
+  # strategy: free  # Параллельное выполнение задач на всех серверах. Если хост заврешил Task 1, он сразу переходит
+                    # к Task 2, даже  если другие хосты еще не закончили Task 1.
+  any_errors_fatal: no # продолжать развертование на др. серверах при ошибках
+
+  vars:
+    ansible_connection: ssh
+    ansible_user: sysadm
+    ansible_password: "our_ssh_password" # Указать ssh пароль в открытом виде
+    ansible_ssh_common_args: '-o StrictHostKeyChecking=no -o ConnectTimeout=60' # Таймаут подключения
+
+  vars_files:
+    - vars/main.yml
+
+  pre_tasks:
+    - name: Verify SSH connectivity with credentials  # Проверка подключения через SSH
+      wait_for_connection:
+        timeout: 60 # Увеличить таймаут
+        sleep: 5
+      register: ssh_check
+      until: ssh_check is success
+      retries: 3
+      delay: 10  
+      tags: always
+      ignore_errors: no # Явное указание не игнорировать ошибки подключения
+
+    - name: Execute backup_scripts     # Запуск скриптов бекапа проекта и БД # убрать баш скрипты из redeploy.sh
+      command: "{{ item }}"
+      args:
+        chdir: /home/sysadm/
+      loop:
+        - /home/sysadm/backup_project.sh    # поменять названия скриптов на актуальные из files   
+        - /home/sysadm/backup_bd.sh         # копия проекта создается в /home/sysadm/project_XX.XX.XX
+      register: backup_scripts_results      # дамп БД по пути /var/lib/postgresql/ 
+      ignore_errors: yes
+      notify:
+        - Send backup Telegram notification   
+        
+  tasks:
+    - name: Copy release files to servers  # Копирование arsp_new.zip, .sh + .py.scripts, python_scripts(если,
+      copy:                                # есть дополнительные .py от разработчиков 
+        src: "files/"
+        dest: /home/sysadm/
+        mode: "0755"
+      register: copy_result
+
+    - name: Extract release archive 
+      unarchive:
+        src: /home/sysadm/arsp_new.zip
+        dest: /home/sysadm/
+        remote_src: yes
+        creates: /home/sysadm/.extracted_flag  # Флаг для идемпотентности
+      register: extract_result
+      ignore_errors: yes
+      when: copy_result is changed          # возможно убрать. Распаковываем только, если файлы скопированы
+    
+    - name: Run installation script
+      command: /home/sysadm/redeploy_no_db_no_compile.sh
+      args:
+        chdir: /home/sysadm
+      register: install_result
+      ignore_errors: yes # Явное игнорирование ошибок при выполнении скрипта (надо подумать)
+      notify:
+        - Send immediate Telegram notification
+      when: 
+        - extract_result is succeeded or extract_result is skipped # Условие запуска скрипта, если архив распокован успешно
+  
+  
+  post_tasks:
+    - name: Process Python fixes if exist # Проверка на наличие .py скриптов, переданнных от разработчика. 
+      block:                              # Проверка, копирование и запуск, объединены в один block (блок)
+        - name: Find .py fix files (excluding migrations)
+          find:
+            paths: /home/sysadm/
+            patterns: "*.py"
+            excludes: "add_migrations.py, show_migrations.py" # Исключение файлов 
+            recurse: no # Рекурсивный поиск во вложенных папках (отключено)
+          register: py_fixes # Сохраняет результат в переменную py_fixes
+
+        - name: Copy .py files
+          copy:
+            src: "{{ item.path }}" # Источник (путь из найденных файлов)
+            dest: /var/www/arsp/
+            remote_src: yes # yes - файлы уже находятся на сервере, не на локальной машине
+            mode: '0755'
+          loop: "{{ py_fixes.files }}"
+          when: py_fixes.matched > 0
+          register: copy_scripts_result
+        
+        - name: Execute .py files SEQUENTIALLY # Запуск .py скриптов последовательно
+          command: "python3 /var/www/arsp/{{ item | basename }}" # Фильтр Ansible, извлекает имя файла из пути (н/п /home/sysadm/fix1.py -> fix.py)
+          args:
+            chdir: /var/www/arsp/
+          loop: "{{ py_fixes.files | map(attribute='path') | list }}" # py_fixes.files - cписок файлов, map(attribute='path') - преобразует список объектов в список путей, list - явное приведение к типу список (для совместимости) 
+          loop_control:
+            label: "{{ item | basename }}"
+          register: scripts_results
+          until: scripts_results is success
+          retries: 1
+          delay: 5
+          ignore_errors: "{{ ignore_py_errors | defaults(false) }}"
+          when: 
+            - py_fixes.matched > 0
+            - copy_scripts_result is changed # Запуск только, если файлы скопированы
+            - "'add_migrations'"
+          
+        - name: Validate scripts execution
+          fail:
+            msg: "Script {{ item | basename }} failed. Output: {{ item.stderr }} Error: {{ item.stderr }}"
+          loop: "{{ script_results.results }}"
+          when:
+            - item.failed
+            - not ignore_py_errors | default(false)
+          loop_control:
+            label: "{{ item.item | basename }}"
+      when: process_python_fixes | default(true)
+
+    
+    - name: Save deployment log   # Сохранение лога развертки, сохраняем на локальной тачке
+      lineinfile:
+        path: "/var/log/deployment.log"
+        line: |
+          [{{ ansible_date_time.iso8601 }}] {{ inventory_hostname }}
+          {% if install_result is failed or extract_result is failed%}
+          FAILED: {{ install_result.msg | default(extract_result.msg)}}
+          {% else %}
+          SUCCESS
+          {% endif %}
+      delegate_to: localhost
+      run_once: yes
+      when: telegram_summary_notify | default(true)
+
+    # Опциональный общий отчет после всех серверов
+    - name: Send summary to Telegram
+      uri:
+        url: "https://api.telegram.org/bot{{ telegram_bot_token }}/sendMessage"
+        method: POST
+        body_format: json
+        body:
+          chat_id: "{{ telegram_chat_id }}"
+          text: |
+            📊 *Итог развертывания {{ project_name }}*
+            {% set success = [] %}
+            {% set failed = [] %}
+            {% for hosts in ansible_play_hosts %}
+              {% if hostvars[host].install_result is difined and hostvars[host].install_result is success %}
+                {% if success.append(host) %}{% endif %}
+              {% else %}
+                {% if failed.append(host) %}{% endif %}
+              {% endif %}
+            {% endfor %}
+            ✅ Успешно: {{ success | count }} 
+            ❌ Ошибка: {{ failed | count }}
+            {% if failed | count > 0 %}
+            Неудачные хосты: {{ failed | join(', ') }}
+            {% endif %}
+          parse_mode: markdown           
+      delegate_to: localhost
+      run_once: yes
+      when: telegram_summary_notify | default(false)
+
+  handlers:
+    - name: Send immediate Telegram notification
+      uri:
+        url: "https://api.telegram.org/bot{{ telegram_bot_token }}/sendMessage"
+        method: POST
+        body_format: json
+        body:
+          chat_id: "{{ telegram_chat_id }}"
+          text: |
+            {% if install_result is failed or extract_result is failed %}
+            ❌ [[{{ inventory_hostname }}] FAILED
+            {% if extract_result is failed %}Extract: {{ extract_result.msg }}{% endif %}
+            {% if install_result is failed %}Install: {{ install_result.msg }}{% endif %}
+            {% else %}
+            ✅ { {{ inventory_hostname }}} SUCCESS
+            { % endif % }
+            Timestamp: {{ ansible_date_time.time }}
+          parse_mode: markdown
+        delegate_to: localhost
+        ignore_errors: yes
+        when:
+          - telegram_immediate_notify | default(true) # Уведомления в ТГ можно отключить в vars/main.yml - false
+          - install_result is defined or extract_results is defined  
+
+    # Доработки
+
+
+    #  1. Доработать таску с исключением из task Process Python fixes if exist,
+    #     если находит файл add_migrations.py и show_migrations.py - игнорирует их запуск.   
+    #  2. Копирование, только уже в /var/www/arsp/ из направленного пакета предварительно .py файлов - 1 таска, 2 таска -
+    #     запуск пайтон скриптов после успешного выполнения redeploy скрипта из /var/www/arsp/
+    #  3. Доработать уведомления в ТГ и общий отчет
+    #  4. Реализовать таску с удалением установочных файлов/скриптов после успешного редеплоя
+    #     при этом проверить удаление объектов (post_task) 
+ 
+    # Запуск
+      # ansible-playbook -i inventory/hosts.yml deploy.yml | tee log.txt --forks 10
+        
+      # * При параметре strategy: free (параллельный запуск tasks на всех серверах) стоит внести
+      # -> tee log.txt
+      # * Флаг --forks 10 - устанавливает число параллельных хостов - 10
+      # * Доработка автозапуска через crown (запуск по расписанию)   35 мин + 50 = 1.30 ч.
