@@ -48,7 +48,7 @@
         mode: "0755"
       register: copy_result
 
-    - name: Extract release archive 
+    - name: Extract release archive # Распаковка переданного архива
       unarchive:
         src: /home/sysadm/arsp_new.zip
         dest: /home/sysadm/
@@ -56,7 +56,7 @@
         creates: /home/sysadm/.extracted_flag  # Флаг для идемпотентности
       register: extract_result
       ignore_errors: yes
-      when: copy_result is changed          # возможно убрать. Распаковываем только, если файлы скопированы
+      when: copy_result is changed          # Распаковываем только, если файлы скопированы
     
     - name: Run installation script
       command: /home/sysadm/redeploy_no_db_no_compile.sh
@@ -205,3 +205,11 @@
       # -> tee log.txt
       # * Флаг --forks 10 - устанавливает число параллельных хостов - 10
       # * Доработка автозапуска через crown (запуск по расписанию)   35 мин + 50 = 1.30 ч.
+
+
+
+      # Проверка всех нод
+      ansible all -i inventory.yml -m ping
+
+      # Проверка только web-серверов
+      ansible webservers -i inventory.yml -m ping
