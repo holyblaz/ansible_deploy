@@ -54,7 +54,7 @@ all:
       ansible_host: 172.29.12.XXX
   vars:
     ansible_user: sysadm
-    ansible_password:
+    ansible_password: *******
 ```
 
 
@@ -69,5 +69,25 @@ all:
 
 Чтобы запустить только на определенных хостах:
     ansible-playbook -i inventory/hosts.yml deploy.yml --limit server1,server2,
+
+
+
+***Запуск Ansible на Windows***
+
+1. Установите WSL2:
+    wsl --install -d Ubuntu
+
+2. Запустите Ubuntu и обновите пакеты:
+    sudo apt update && sudo apt upgrade -y
+
+3. Установите Ansible:
+    sudo apt install ansible -y
+
+4. Теперь можно работать с Ansible через WSL
+
+
+***Docker (Ansible в контейнере)*** ТЕСТОВЫЙ ВАРИАНТ
+
+- docker run --rm -v ${PWD}:/ansible ansible/ansible:latest ansible playbook playbook.yml
 
 

@@ -133,8 +133,32 @@
       delegate_to: localhost
       run_once: yes
       when: telegram_summary_notify | default(true)
+    
+    - name: Delete all copy files after installation # удаление всех переданных файлов на машине после установки *.zip, *.sh, *.py
+      block:
+        - name: Find and delete copied files
+          find:
+            paths: /home/sysadm/
+            patterns: "*.zip, *.sh, *.py"
+            age: "0d" # Только файлы, созданные сегодня
+            recurse: no
+          register: files to delete # Возможно убрать регистр
+          delegate_to: {{ inventory_hostname }}
+          run_once: false
 
-    # Опциональный общий отчет после всех серверов
+        - name: Remove found files    # Удалить переданные файлы
+          file:
+            path: "{{item.path}}"
+            state: absent
+          loop: "{{ files_to_delete.files}}"
+          ignore_errors: yes
+          delegate_to: "{{ inventory_hostname }}"
+          run_once: false
+          when:
+            - install_result is succeeded
+            - install_result is succeeded
+
+    # ЧАСТЬ С ТГ-уведомлениями. Можно закомментить. (Опциональный общий отчет после всех серверов) 
     - name: Send summary to Telegram
       uri:
         url: "https://api.telegram.org/bot{{ telegram_bot_token }}/sendMessage"
@@ -191,7 +215,7 @@
 
 
     #  1. Доработать таску с исключением из task Process Python fixes if exist,
-    #     если находит файл add_migrations.py и show_migrations.py - игнорирует их запуск.   
+    #     если находит файл add_migrations.py и show_migrations.py - игнорирует их запуск.   (+)
     #  2. Копирование, только уже в /var/www/arsp/ из направленного пакета предварительно .py файлов - 1 таска, 2 таска -
     #     запуск пайтон скриптов после успешного выполнения redeploy скрипта из /var/www/arsp/
     #  3. Доработать уведомления в ТГ и общий отчет
