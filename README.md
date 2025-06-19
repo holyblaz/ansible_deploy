@@ -58,17 +58,16 @@ all:
 ```
 
 
-
 ### X. Запуск playbook
 
  # Проверка всех нод
     ansible all -i inventory.yml -m ping
 
 Чтобы запустить деплой, выполните команду:
-    ansible-playbook -i inventory/hosts.yml deploy.yml
+    ansible-playbook -i inventory/hosts.yml deploy.yml # Запуск всех серверов, указаныыз в host.yml -> в группе all
 
 Чтобы запустить только на определенных хостах:
-    ansible-playbook -i inventory/hosts.yml deploy.yml --limit server1,server2,
+    ansible-playbook -i inventory/hosts.yml deploy.yml --limit "server1,server2.." # Запуск определенных серверов, указаныых в host.yml -> в группе all 
 
 
 
