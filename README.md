@@ -63,20 +63,30 @@ ansible-playbook/
 Отредактируйте файл `inventory\hosts.yml`:
 ```yaml
 all:
-  hosts:
-    server1:
-      ansible_host: 172.29.12.225
-    server2:
-      ansible_host: 172.29.12.235
-    .
-    .
-    server10:
-      ansible_host: 172.29.12.XXX
-  vars:
-    ansible_user: sysadm
-    ansible_password: *******
-```
+  children:
+    test_servers:   # Рабочие сервера всей команды
+      hosts:
+        server1:
+          ansible_host: 172.29.12.225
+        server2:
+          ansible_host: 172.29.12.231
+        server3:
+          ansible_host: 172.29.12.229
+    hosts_for_developers:  # Рабочие сервера разработчиков
+      hosts:
+        server4:
+          ansible_host: 172.29.12.ХХ1 # Пример сервера разработчика
+        server5:
+          ansible_host: 172.29.12.XX2
+         
+    # ansible-playbook -i hosts.yml deploy.yml --limit "test_servers" - запуск деплоя на всех рабочих серверах команды
 
+    # ansible-playbook -i hosts.yml deploy.yml --limit "hosts_for_developers" - запуск деплоя на всех рабочих серверах разработчиков
+
+    # ansible-playbook -i hosts.yml deploy.yml --limit "serverX" - ограничивает установку только на определенном сервере
+
+    # ansible-playbook -i hosts.yml deploy.yml --limit "server1,server4,server" - ограничивает установка только на определенном сервер
+```
 
 ### X. Запуск playbook
 
