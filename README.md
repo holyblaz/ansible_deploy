@@ -78,15 +78,15 @@ all:
           ansible_host: 172.29.12.ХХ1 # Пример сервера разработчика
         server5:
           ansible_host: 172.29.12.XX2
-         
-    # ansible-playbook -i hosts.yml deploy.yml --limit "test_servers" - запуск деплоя на всех рабочих серверах команды
 
-    # ansible-playbook -i hosts.yml deploy.yml --limit "hosts_for_developers" - запуск деплоя на всех рабочих серверах разработчиков
+### X. YFncfdfd
 
-    # ansible-playbook -i hosts.yml deploy.yml --limit "serverX" - ограничивает установку только на определенном сервере
-
-    # ansible-playbook -i hosts.yml deploy.yml --limit "server1,server4,server" - ограничивает установка только на определенном сервер
-```
+| Команда | Описание |
+|---------|----------|
+| `ansible-playbook -i hosts.yml deploy.yml --limit "test_servers"` | **Запуск деплоя** на всех рабочих серверах команды |
+| `ansible-playbook -i hosts.yml deploy.yml --limit "hosts_for_developers"` | **Запуск деплоя** на всех рабочих серверах разработчиков |
+| `ansible-playbook -i hosts.yml deploy.yml --limit "serverX"` | **Ограничивает установку** только на определенном сервере |
+| `ansible-playbook -i hosts.yml deploy.yml --limit "server1,server4,server5"` | **Ограничивает установку** только на указанных серверах |
 
 ### X. Запуск playbook
 
